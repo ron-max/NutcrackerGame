@@ -545,7 +545,7 @@ function updatePlayer(dt) {
   const forwardInput = THREE.MathUtils.clamp(keyboard.y - state.touchMove.y, -1, 1);
 
   if (Math.abs(turnInput) > 0.001) {
-    state.aimYaw += turnInput * PLAYER_TURN_SPEED * dt;
+    state.aimYaw -= turnInput * PLAYER_TURN_SPEED * dt;
   }
 
   if (Math.abs(forwardInput) > 0.001) {

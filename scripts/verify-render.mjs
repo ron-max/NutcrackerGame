@@ -54,6 +54,17 @@ try {
       await page.waitForTimeout(120);
       const lookAfter = await page.evaluate(() => window.__nutcrackerDebug.getAimYaw());
       canvasState.mouseLookDelta = Number((lookAfter - lookBefore).toFixed(3));
+      const turnBefore = await page.evaluate(() => window.__nutcrackerDebug.getAimYaw());
+      await page.keyboard.down('KeyA');
+      await page.waitForTimeout(260);
+      await page.keyboard.up('KeyA');
+      const turnAfterA = await page.evaluate(() => window.__nutcrackerDebug.getAimYaw());
+      await page.keyboard.down('KeyD');
+      await page.waitForTimeout(260);
+      await page.keyboard.up('KeyD');
+      const turnAfterD = await page.evaluate(() => window.__nutcrackerDebug.getAimYaw());
+      canvasState.keyTurnDeltaA = Number((turnAfterA - turnBefore).toFixed(3));
+      canvasState.keyTurnDeltaD = Number((turnAfterD - turnAfterA).toFixed(3));
       await page.keyboard.press('Space');
     }
 
@@ -69,6 +80,8 @@ try {
       canvasState.width > 0 &&
       canvasState.height > 0 &&
       (viewport.isMobile || Math.abs(canvasState.mouseLookDelta) >= 0.05) &&
+      (viewport.isMobile ||
+        (canvasState.keyTurnDeltaA >= 0.2 && canvasState.keyTurnDeltaD <= -0.2)) &&
       pixels.uniqueBuckets >= 40 &&
       pixels.lumaRange >= 60 &&
       pixels.nonDarkRatio >= 0.12;
