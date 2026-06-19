@@ -20,6 +20,7 @@ const MAX_BOMBS = 4;
 const ARENA_RADIUS = 19;
 const GRAVITY = 17;
 const PLAYER_TURN_SPEED = 3.2;
+const MOUSE_LOOK_SPEED = 0.0028;
 const tmpVec = new THREE.Vector3();
 const tmpVec2 = new THREE.Vector3();
 
@@ -90,6 +91,7 @@ const state = {
   touchMove: new THREE.Vector2(),
   aimYaw: 0,
   playerVelocity: new THREE.Vector3(),
+  mouseLookActive: false,
   mice: [],
   bombsLive: [],
   particles: [],
@@ -98,6 +100,11 @@ const state = {
 };
 
 let audioContext;
+
+window.__nutcrackerDebug = {
+  getAimYaw: () => state.aimYaw,
+  isMouseLookActive: () => state.mouseLookActive || document.pointerLockElement === canvas,
+};
 
 initLights();
 initWorld();
@@ -358,7 +365,30 @@ function bindInput() {
 
   canvas.addEventListener('pointerdown', () => {
     ensureAudio();
+    requestMouseLook();
     throwPlayerBomb();
+  });
+
+  canvas.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+  });
+
+  canvas.addEventListener('pointerleave', () => {
+    if (document.pointerLockElement !== canvas) {
+      state.mouseLookActive = false;
+    }
+  });
+
+  window.addEventListener('mousemove', (event) => {
+    updateMouseLook(event);
+  });
+
+  window.addEventListener('blur', () => {
+    state.mouseLookActive = false;
+  });
+
+  document.addEventListener('pointerlockchange', () => {
+    state.mouseLookActive = document.pointerLockElement === canvas;
   });
 
   pauseButton.addEventListener('click', () => {
@@ -422,6 +452,25 @@ function updateStick(event, center) {
   const y = Math.sin(angle) * length;
   stickKnob.style.transform = `translate(${x}px, ${y}px)`;
   state.touchMove.set(x / 44, y / 44);
+}
+
+function requestMouseLook() {
+  state.mouseLookActive = true;
+  if (!canvas.requestPointerLock || document.pointerLockElement === canvas) return;
+
+  try {
+    const request = canvas.requestPointerLock();
+    if (request?.catch) request.catch(() => {});
+  } catch {
+    state.mouseLookActive = true;
+  }
+}
+
+function updateMouseLook(event) {
+  const active = state.mouseLookActive || document.pointerLockElement === canvas;
+  if (!active || !state.running || state.gameOver) return;
+  if (Math.abs(event.movementX) < 0.001) return;
+  state.aimYaw += event.movementX * MOUSE_LOOK_SPEED;
 }
 
 function togglePause() {

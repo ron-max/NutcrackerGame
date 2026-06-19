@@ -17,5 +17,6 @@ Open http://127.0.0.1:5173/.
 - `S` / `ArrowDown`: move backward
 - `A` / `ArrowLeft`: turn left
 - `D` / `ArrowRight`: turn right
+- Mouse movement after clicking the game: look / turn
 - `Space` or mouse click: throw a bomb
 - `Esc`: pause

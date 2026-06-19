@@ -47,7 +47,13 @@ try {
     if (viewport.isMobile) {
       await page.getByLabel('Throw bomb').tap();
     } else {
+      const lookBefore = await page.evaluate(() => window.__nutcrackerDebug.getAimYaw());
       await page.mouse.click(viewport.width / 2, viewport.height / 2);
+      await page.waitForTimeout(120);
+      await page.mouse.move(viewport.width / 2 + 180, viewport.height / 2, { steps: 6 });
+      await page.waitForTimeout(120);
+      const lookAfter = await page.evaluate(() => window.__nutcrackerDebug.getAimYaw());
+      canvasState.mouseLookDelta = Number((lookAfter - lookBefore).toFixed(3));
       await page.keyboard.press('Space');
     }
 
@@ -62,6 +68,7 @@ try {
       canvasState.clientHeight === viewport.height &&
       canvasState.width > 0 &&
       canvasState.height > 0 &&
+      (viewport.isMobile || Math.abs(canvasState.mouseLookDelta) >= 0.05) &&
       pixels.uniqueBuckets >= 40 &&
       pixels.lumaRange >= 60 &&
       pixels.nonDarkRatio >= 0.12;
