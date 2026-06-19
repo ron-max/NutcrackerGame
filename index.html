@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nutcracker Nightwatch</title>
+  </head>
+  <body>
+    <main id="app">
+      <canvas id="gameCanvas" aria-label="Nutcracker Nightwatch 3D game"></canvas>
+
+      <section class="hud" aria-label="Game status">
+        <div class="stat">
+          <span id="waveValue">1</span>
+          <small>Wave</small>
+        </div>
+        <div class="stat score">
+          <span id="scoreValue">0</span>
+          <small>Score</small>
+        </div>
+        <div class="meter health">
+          <small>Guard</small>
+          <div><span id="healthFill"></span></div>
+        </div>
+        <div class="bombRack" id="bombRack" aria-label="Bombs"></div>
+      </section>
+
+      <button class="iconButton pauseButton" id="pauseButton" aria-label="Pause">
+        <span></span>
+      </button>
+
+      <div class="reticle" aria-hidden="true"></div>
+
+      <section class="overlay is-hidden" id="overlay" aria-live="polite">
+        <div class="overlayPanel">
+          <h1 id="overlayTitle">Paused</h1>
+          <p id="overlayMessage">The mouse charge is waiting.</p>
+          <button id="overlayAction">Resume</button>
+        </div>
+      </section>
+
+      <section class="mobileControls" aria-label="Touch controls">
+        <div class="stick" id="moveStick" aria-label="Move">
+          <span id="stickKnob"></span>
+        </div>
+        <button class="bombButton" id="bombButton" aria-label="Throw bomb">
+          <span></span>
+        </button>
+      </section>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
