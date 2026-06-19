@@ -19,10 +19,7 @@ const MAX_HEALTH = 100;
 const MAX_BOMBS = 4;
 const ARENA_RADIUS = 19;
 const GRAVITY = 17;
-const pointer = new THREE.Vector2();
-const raycaster = new THREE.Raycaster();
-const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-const pointerPoint = new THREE.Vector3();
+const PLAYER_TURN_SPEED = 3.2;
 const tmpVec = new THREE.Vector3();
 const tmpVec2 = new THREE.Vector3();
 
@@ -101,7 +98,6 @@ const state = {
 };
 
 let audioContext;
-let lastPointerAimTime = 0;
 
 initLights();
 initWorld();
@@ -360,13 +356,8 @@ function bindInput() {
     state.keys.delete(event.code);
   });
 
-  canvas.addEventListener('pointermove', (event) => {
-    updatePointerAim(event);
-  });
-
-  canvas.addEventListener('pointerdown', (event) => {
+  canvas.addEventListener('pointerdown', () => {
     ensureAudio();
-    updatePointerAim(event);
     throwPlayerBomb();
   });
 
@@ -431,21 +422,6 @@ function updateStick(event, center) {
   const y = Math.sin(angle) * length;
   stickKnob.style.transform = `translate(${x}px, ${y}px)`;
   state.touchMove.set(x / 44, y / 44);
-}
-
-function updatePointerAim(event) {
-  const rect = canvas.getBoundingClientRect();
-  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
-  raycaster.setFromCamera(pointer, camera);
-  if (raycaster.ray.intersectPlane(groundPlane, pointerPoint)) {
-    const dx = pointerPoint.x - player.position.x;
-    const dz = pointerPoint.z - player.position.z;
-    if (Math.hypot(dx, dz) > 0.35) {
-      state.aimYaw = Math.atan2(dx, dz);
-      lastPointerAimTime = performance.now();
-    }
-  }
 }
 
 function togglePause() {
@@ -516,15 +492,21 @@ function updatePlayer(dt) {
   if (state.keys.has('KeyA') || state.keys.has('ArrowLeft')) keyboard.x -= 1;
   if (state.keys.has('KeyD') || state.keys.has('ArrowRight')) keyboard.x += 1;
 
-  tmpVec.set(keyboard.x + state.touchMove.x, 0, keyboard.y - state.touchMove.y);
-  if (tmpVec.lengthSq() > 1) tmpVec.normalize();
+  const turnInput = THREE.MathUtils.clamp(keyboard.x + state.touchMove.x, -1, 1);
+  const forwardInput = THREE.MathUtils.clamp(keyboard.y - state.touchMove.y, -1, 1);
 
-  if (tmpVec.lengthSq() > 0.001) {
-    const desiredYaw = Math.atan2(tmpVec.x, tmpVec.z);
-    if (performance.now() - lastPointerAimTime > 900) {
-      state.aimYaw = smoothAngle(state.aimYaw, desiredYaw, 0.18);
-    }
-    state.playerVelocity.lerp(tmpVec.multiplyScalar(6.8), 0.22);
+  if (Math.abs(turnInput) > 0.001) {
+    state.aimYaw += turnInput * PLAYER_TURN_SPEED * dt;
+  }
+
+  if (Math.abs(forwardInput) > 0.001) {
+    const moveSpeed = forwardInput > 0 ? 6.8 : 4.2;
+    tmpVec.set(
+      Math.sin(state.aimYaw) * forwardInput * moveSpeed,
+      0,
+      Math.cos(state.aimYaw) * forwardInput * moveSpeed,
+    );
+    state.playerVelocity.lerp(tmpVec, 0.22);
   } else {
     state.playerVelocity.multiplyScalar(0.78);
   }
