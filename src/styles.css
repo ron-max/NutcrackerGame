@@ -53,10 +53,15 @@ button {
 .meter,
 .bombRack {
   min-height: 54px;
-  border: 1px solid rgba(245, 211, 108, 0.35);
+  border: 1px solid rgba(245, 211, 108, 0.58);
   border-radius: 8px;
-  background: rgba(14, 16, 22, 0.72);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
+  background:
+    linear-gradient(135deg, rgba(126, 35, 48, 0.28), rgba(14, 16, 22, 0.8) 42%),
+    rgba(14, 16, 22, 0.76);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    inset 0 -4px 0 rgba(126, 35, 48, 0.24),
+    0 10px 30px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(10px);
 }
 
@@ -72,6 +77,7 @@ button {
 
 .stat span {
   color: #f5d36c;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.28);
   font-size: 22px;
   font-weight: 800;
   line-height: 1;
@@ -99,8 +105,9 @@ button {
   overflow: hidden;
   width: 100%;
   height: 11px;
+  border: 1px solid rgba(245, 211, 108, 0.2);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.13);
 }
 
 .meter span {
@@ -127,7 +134,9 @@ button {
   border-radius: 50%;
   background: #22242a;
   border: 2px solid #f5d36c;
-  box-shadow: inset -4px -5px 0 rgba(0, 0, 0, 0.34);
+  box-shadow:
+    inset -4px -5px 0 rgba(0, 0, 0, 0.34),
+    0 0 10px rgba(245, 211, 108, 0.14);
 }
 
 .bombPip::before {
@@ -205,10 +214,13 @@ button {
   z-index: 2;
   width: 24px;
   height: 24px;
-  border: 2px solid rgba(245, 211, 108, 0.78);
+  border: 2px solid rgba(245, 211, 108, 0.82);
   border-radius: 50%;
   transform: translate(-50%, -50%);
   pointer-events: none;
+  box-shadow:
+    0 0 0 4px rgba(126, 35, 48, 0.18),
+    0 0 18px rgba(245, 211, 108, 0.2);
 }
 
 .reticle::before,
@@ -220,16 +232,16 @@ button {
 
 .reticle::before {
   left: 50%;
-  top: -9px;
+  top: -11px;
   width: 2px;
-  height: 40px;
+  height: 44px;
   transform: translateX(-50%);
 }
 
 .reticle::after {
-  left: -9px;
+  left: -11px;
   top: 50%;
-  width: 40px;
+  width: 44px;
   height: 2px;
   transform: translateY(-50%);
 }
@@ -351,6 +363,14 @@ button {
 @media (pointer: coarse) {
   .mobileControls {
     display: flex;
+  }
+
+  .stat,
+  .meter,
+  .bombRack,
+  .iconButton,
+  .bombButton {
+    backdrop-filter: none;
   }
 }
 

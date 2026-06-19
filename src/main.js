@@ -23,6 +23,8 @@ const PLAYER_TURN_SPEED = 3.2;
 const MOUSE_LOOK_SPEED = 0.0028;
 const tmpVec = new THREE.Vector3();
 const tmpVec2 = new THREE.Vector3();
+const tmpVec3 = new THREE.Vector3();
+const tmpVec4 = new THREE.Vector3();
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x11131a);
@@ -36,12 +38,27 @@ const renderer = new THREE.WebGLRenderer({
   antialias: true,
   powerPreference: 'high-performance',
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const clock = new THREE.Clock();
+const boxGeometries = new Map();
+const sphereGeometries = new Map();
+
+let activePixelRatio = 1;
+let pixelRatioScale = 1;
+let averageFrameMs = 16.7;
+let pixelRatioCheckTimer = 0;
+let pausedRenderTimer = 0;
+let renderedBombCount = null;
+
+const hudCache = {
+  wave: null,
+  score: null,
+  healthPercent: null,
+  healthColor: null,
+};
 
 const materials = {
   soldierBlue: new THREE.MeshStandardMaterial({ color: 0x244e9f, roughness: 0.52 }),
@@ -62,6 +79,13 @@ const materials = {
     emissiveIntensity: 0.9,
     roughness: 0.36,
   }),
+  mousePowerElite: new THREE.MeshStandardMaterial({
+    color: 0xff6ac8,
+    emissive: 0xf7359c,
+    emissiveIntensity: 1.2,
+    roughness: 0.36,
+  }),
+  mouseTail: new THREE.MeshStandardMaterial({ color: 0xc78393, roughness: 0.55 }),
   bomb: new THREE.MeshStandardMaterial({ color: 0x191a1f, roughness: 0.42 }),
   fuse: new THREE.MeshStandardMaterial({
     color: 0xfff0a8,
@@ -69,9 +93,39 @@ const materials = {
     emissiveIntensity: 0.8,
   }),
   wood: new THREE.MeshStandardMaterial({ color: 0x7b5032, roughness: 0.76 }),
+  woodLight: new THREE.MeshStandardMaterial({ color: 0x9a6741, roughness: 0.78 }),
+  woodDark: new THREE.MeshStandardMaterial({ color: 0x684127, roughness: 0.82 }),
   snow: new THREE.MeshStandardMaterial({ color: 0xdfeeed, roughness: 0.62 }),
   pine: new THREE.MeshStandardMaterial({ color: 0x1e6e43, roughness: 0.7 }),
   candyRed: new THREE.MeshStandardMaterial({ color: 0xc73a45, roughness: 0.55 }),
+  curtain: new THREE.MeshStandardMaterial({ color: 0x7e2330, roughness: 0.72 }),
+  ribbonBlue: new THREE.MeshStandardMaterial({ color: 0x3d62b8, roughness: 0.58 }),
+  ornamentBlue: new THREE.MeshStandardMaterial({
+    color: 0x58b7ff,
+    emissive: 0x0b5f98,
+    emissiveIntensity: 0.45,
+    roughness: 0.35,
+  }),
+  ornamentRed: new THREE.MeshStandardMaterial({
+    color: 0xd84655,
+    emissive: 0x78131f,
+    emissiveIntensity: 0.35,
+    roughness: 0.36,
+  }),
+  garland: new THREE.MeshStandardMaterial({
+    color: 0xf5d36c,
+    metalness: 0.25,
+    roughness: 0.38,
+  }),
+};
+
+const geometries = {
+  spark: new THREE.SphereGeometry(1, 8, 6),
+  puff: new THREE.SphereGeometry(1, 8, 6),
+  shock: new THREE.SphereGeometry(1, 18, 12),
+  bomb: new THREE.SphereGeometry(0.24, 16, 12),
+  mouseEye: new THREE.SphereGeometry(0.035, 8, 6),
+  ornament: new THREE.SphereGeometry(0.11, 10, 8),
 };
 
 const state = {
@@ -132,7 +186,7 @@ function initLights() {
   const moon = new THREE.DirectionalLight(0xd8f3ff, 2.7);
   moon.position.set(-12, 18, -8);
   moon.castShadow = true;
-  moon.shadow.mapSize.set(2048, 2048);
+  moon.shadow.mapSize.set(1024, 1024);
   moon.shadow.camera.left = -28;
   moon.shadow.camera.right = 28;
   moon.shadow.camera.top = 28;
@@ -152,6 +206,27 @@ function initWorld() {
   floor.receiveShadow = true;
   floor.position.y = -0.28;
   scene.add(floor);
+
+  for (let i = 0; i < 20; i += 1) {
+    const thetaLength = (Math.PI * 2) / 20;
+    const plank = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        ARENA_RADIUS - 0.32,
+        ARENA_RADIUS - 0.32,
+        0.035,
+        8,
+        1,
+        false,
+        i * thetaLength + 0.015,
+        thetaLength - 0.03,
+      ),
+      i % 2 === 0 ? materials.woodLight : materials.woodDark,
+    );
+    plank.position.y = -0.01;
+    plank.receiveShadow = true;
+    freezeStatic(plank);
+    scene.add(plank);
+  }
 
   const ring = new THREE.Mesh(
     new THREE.TorusGeometry(ARENA_RADIUS, 0.22, 12, 128),
@@ -178,21 +253,68 @@ function initWorld() {
       new THREE.CylinderGeometry(0.18, 0.18, 2.2, 14),
       i % 2 === 0 ? materials.candyRed : materials.white,
     );
-    stripeA.castShadow = true;
+    stripeA.castShadow = false;
     stripeA.position.y = 1.1;
     post.add(stripeA);
 
     const cap = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 12), materials.trimGold);
     cap.position.y = 2.32;
-    cap.castShadow = true;
+    cap.castShadow = false;
     post.add(cap);
 
     post.position.set(Math.sin(angle) * radius, 0, Math.cos(angle) * radius);
+    freezeStatic(post);
     scene.add(post);
   }
 
+  createBackdrop();
   createTree();
   createToyBlocks();
+}
+
+function createBackdrop() {
+  const curtainBack = new THREE.Mesh(new THREE.BoxGeometry(32, 9, 0.32), materials.curtain);
+  curtainBack.position.set(0, 4.3, ARENA_RADIUS + 4.6);
+  freezeStatic(curtainBack);
+  scene.add(curtainBack);
+
+  const sideCurtainL = new THREE.Mesh(new THREE.BoxGeometry(0.36, 7, 18), materials.curtain);
+  sideCurtainL.position.set(-ARENA_RADIUS - 4.6, 3.4, 7);
+  freezeStatic(sideCurtainL);
+  scene.add(sideCurtainL);
+
+  const sideCurtainR = sideCurtainL.clone();
+  sideCurtainR.position.x = ARENA_RADIUS + 4.6;
+  freezeStatic(sideCurtainR);
+  scene.add(sideCurtainR);
+
+  const giftMaterials = [materials.candyRed, materials.ribbonBlue, materials.trimGold, materials.pine];
+  for (let i = 0; i < 12; i += 1) {
+    const angle = (i / 12) * Math.PI * 2 + 0.14;
+    const radius = ARENA_RADIUS + 2.8 + (i % 3) * 0.8;
+    const gift = new THREE.Group();
+    const width = 1.2 + (i % 2) * 0.45;
+    const height = 0.8 + (i % 3) * 0.18;
+    const boxMesh = new THREE.Mesh(
+      getBoxGeometry(width, height, width),
+      giftMaterials[i % giftMaterials.length],
+    );
+    boxMesh.position.y = height / 2;
+    gift.add(boxMesh);
+
+    const ribbonV = new THREE.Mesh(getBoxGeometry(width * 1.04, height * 1.05, 0.12), materials.white);
+    ribbonV.position.y = height / 2;
+    gift.add(ribbonV);
+
+    const ribbonH = new THREE.Mesh(getBoxGeometry(0.12, height * 1.07, width * 1.04), materials.white);
+    ribbonH.position.y = height / 2;
+    gift.add(ribbonH);
+
+    gift.position.set(Math.sin(angle) * radius, 0, Math.cos(angle) * radius);
+    gift.rotation.y = -angle + Math.PI * 0.25;
+    freezeStatic(gift);
+    scene.add(gift);
+  }
 }
 
 function createTree() {
@@ -210,6 +332,27 @@ function createTree() {
     layer.position.y = 1.55 + i * 0.9;
     layer.castShadow = true;
     tree.add(layer);
+  }
+
+  for (let i = 0; i < 16; i += 1) {
+    const angle = i * 1.72;
+    const y = 2.05 + (i % 4) * 0.68;
+    const radius = 1.75 - (i % 4) * 0.27;
+    const ornament = new THREE.Mesh(
+      geometries.ornament,
+      i % 2 === 0 ? materials.ornamentRed : materials.ornamentBlue,
+    );
+    ornament.position.set(Math.sin(angle) * radius, y, Math.cos(angle) * radius);
+    ornament.castShadow = false;
+    tree.add(ornament);
+  }
+
+  for (let i = 0; i < 3; i += 1) {
+    const garland = new THREE.Mesh(new THREE.TorusGeometry(2.15 - i * 0.4, 0.035, 8, 48), materials.garland);
+    garland.position.y = 2.05 + i * 0.88;
+    garland.rotation.x = Math.PI / 2;
+    garland.rotation.z = 0.24 + i * 0.4;
+    tree.add(garland);
   }
 
   const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.44, 0), materials.trimGold);
@@ -238,8 +381,9 @@ function createToyBlocks() {
     );
     block.position.set(Math.sin(angle) * radius, 0.35, Math.cos(angle) * radius);
     block.rotation.set(Math.random() * 0.3, Math.random() * Math.PI, Math.random() * 0.3);
-    block.castShadow = true;
+    block.castShadow = false;
     block.receiveShadow = true;
+    freezeStatic(block);
     scene.add(block);
   }
 }
@@ -255,6 +399,12 @@ function createSoldier({ coat, plume, scale = 1 }) {
   const torso = box(0.82, 1.05, 0.42, coat, 0, 1.35, 0);
   const sash = box(0.9, 0.13, 0.46, materials.trimGold, 0, 1.53, 0.01);
   sash.rotation.z = -0.55;
+  const belt = box(0.86, 0.12, 0.46, materials.black, 0, 1.18, 0.02);
+  const buckle = box(0.18, 0.16, 0.49, materials.trimGold, 0, 1.18, 0.04);
+  const cuffL = box(0.22, 0.12, 0.2, materials.trimGold, -0.67, 1.05, 0.03);
+  cuffL.rotation.z = 0.22;
+  const cuffR = box(0.22, 0.12, 0.2, materials.trimGold, 0.67, 1.05, 0.03);
+  cuffR.rotation.z = -0.22;
   const shoulderL = sphere(0.18, materials.trimGold, -0.52, 1.78, 0);
   const shoulderR = sphere(0.18, materials.trimGold, 0.52, 1.78, 0);
   const head = sphere(0.31, materials.face, 0, 2.1, 0.02);
@@ -274,7 +424,7 @@ function createSoldier({ coat, plume, scale = 1 }) {
     }),
   );
   plumeMesh.position.set(0.2, 2.85, 0.06);
-  plumeMesh.castShadow = true;
+  plumeMesh.castShadow = false;
 
   const armL = box(0.18, 0.72, 0.18, coat, -0.58, 1.35, 0);
   armL.rotation.z = 0.22;
@@ -287,6 +437,14 @@ function createSoldier({ coat, plume, scale = 1 }) {
   baton.rotation.z = -0.3;
   baton.castShadow = true;
 
+  const buttons = [];
+  for (let i = 0; i < 3; i += 1) {
+    const button = new THREE.Mesh(getSphereGeometry(0.045, 10, 8), materials.trimGold);
+    button.position.set(0, 1.28 + i * 0.18, 0.245);
+    button.castShadow = false;
+    buttons.push(button);
+  }
+
   group.add(
     bootL,
     bootR,
@@ -294,6 +452,10 @@ function createSoldier({ coat, plume, scale = 1 }) {
     legR,
     torso,
     sash,
+    belt,
+    buckle,
+    cuffL,
+    cuffR,
     shoulderL,
     shoulderR,
     head,
@@ -303,6 +465,7 @@ function createSoldier({ coat, plume, scale = 1 }) {
     armL,
     armR,
     baton,
+    ...buttons,
   );
   return group;
 }
@@ -330,7 +493,7 @@ function createAllies() {
 }
 
 function box(width, height, depth, material, x, y, z) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
+  const mesh = new THREE.Mesh(getBoxGeometry(width, height, depth), material);
   mesh.position.set(x, y, z);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -338,10 +501,36 @@ function box(width, height, depth, material, x, y, z) {
 }
 
 function sphere(radius, material, x, y, z) {
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 18, 14), material);
+  const mesh = new THREE.Mesh(getSphereGeometry(radius, 18, 14), material);
   mesh.position.set(x, y, z);
   mesh.castShadow = true;
   return mesh;
+}
+
+function getBoxGeometry(width, height, depth) {
+  const key = `${width}:${height}:${depth}`;
+  if (!boxGeometries.has(key)) {
+    boxGeometries.set(key, new THREE.BoxGeometry(width, height, depth));
+  }
+  return boxGeometries.get(key);
+}
+
+function getSphereGeometry(radius, widthSegments, heightSegments) {
+  const key = `${radius}:${widthSegments}:${heightSegments}`;
+  if (!sphereGeometries.has(key)) {
+    sphereGeometries.set(key, new THREE.SphereGeometry(radius, widthSegments, heightSegments));
+  }
+  return sphereGeometries.get(key);
+}
+
+function freezeStatic(object) {
+  object.traverse?.((child) => {
+    child.castShadow = false;
+  });
+  object.updateMatrixWorld(true);
+  object.traverse?.((child) => {
+    child.matrixAutoUpdate = false;
+  });
 }
 
 function bindInput() {
@@ -517,8 +706,22 @@ function restartGame() {
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.033);
-  if (state.running) update(dt);
-  render();
+  updateAdaptivePixelRatio(dt);
+
+  if (document.hidden) return;
+
+  if (state.running) {
+    pausedRenderTimer = 0;
+    update(dt);
+    render();
+    return;
+  }
+
+  pausedRenderTimer += dt;
+  if (pausedRenderTimer >= 0.2) {
+    pausedRenderTimer = 0;
+    render();
+  }
 }
 
 function update(dt) {
@@ -628,7 +831,9 @@ function spawnMouse(spawn = {}) {
 
   if (elite) {
     group.scale.setScalar(1.18);
-    group.userData.powerBand.material.emissiveIntensity = 1.45;
+    group.userData.powerBand.material = materials.mousePowerElite;
+    group.userData.eyeL.material = materials.candyRed;
+    group.userData.eyeR.material = materials.candyRed;
   }
 
   if (spawn.launch) {
@@ -668,14 +873,30 @@ function createMouse() {
   nose.position.set(0, 0.62, 0.74);
   group.add(nose);
 
+  const eyeL = new THREE.Mesh(geometries.mouseEye, materials.black);
+  eyeL.position.set(-0.1, 0.7, 0.66);
+  const eyeR = eyeL.clone();
+  eyeR.position.x = 0.1;
+  group.add(eyeL, eyeR);
+
   const tail = new THREE.Mesh(
     new THREE.CapsuleGeometry(0.04, 0.8, 6, 10),
-    new THREE.MeshStandardMaterial({ color: 0xc78393, roughness: 0.55 }),
+    materials.mouseTail,
   );
   tail.position.set(0, 0.45, -0.78);
   tail.rotation.x = Math.PI / 2.8;
-  tail.castShadow = true;
+  tail.castShadow = false;
   group.add(tail);
+
+  const key = new THREE.Group();
+  const keyStem = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.28, 8), materials.trimGold);
+  keyStem.rotation.z = Math.PI / 2;
+  const keyLoop = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.018, 8, 18), materials.trimGold);
+  keyLoop.position.x = 0.16;
+  key.add(keyStem, keyLoop);
+  key.position.set(0.54, 0.62, -0.12);
+  key.rotation.y = Math.PI / 2;
+  group.add(key);
 
   const powerBand = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.035, 8, 32), materials.mousePower);
   powerBand.position.y = 0.54;
@@ -683,10 +904,17 @@ function createMouse() {
   group.add(powerBand);
   group.userData.powerBand = powerBand;
   group.userData.body = body;
+  group.userData.eyeL = eyeL;
+  group.userData.eyeR = eyeR;
+  group.userData.key = key;
   return group;
 }
 
 function updateMice(dt) {
+  const now = performance.now();
+  materials.mousePower.emissiveIntensity = 0.72 + Math.sin(now * 0.009) * 0.2;
+  materials.mousePowerElite.emissiveIntensity = 1.15 + Math.sin(now * 0.011) * 0.35;
+
   for (let i = state.mice.length - 1; i >= 0; i -= 1) {
     const mouse = state.mice[i];
     const group = mouse.group;
@@ -699,7 +927,7 @@ function updateMice(dt) {
     const distanceToPlayer = tmpVec.length();
     if (distanceToPlayer > 0.001) tmpVec.normalize();
 
-    const sidestep = Math.sin(performance.now() * 0.0025 + mouse.wiggle) * 0.45;
+    const sidestep = Math.sin(now * 0.0025 + mouse.wiggle) * 0.45;
     tmpVec2.set(tmpVec.z * sidestep, 0, -tmpVec.x * sidestep);
     tmpVec.add(tmpVec2).normalize();
 
@@ -723,11 +951,8 @@ function updateMice(dt) {
 
     clampToArena(group.position, ARENA_RADIUS - 1.3);
     group.rotation.y = Math.atan2(mouse.velocity.x, mouse.velocity.z);
-    group.rotation.z = Math.sin(performance.now() * 0.012 + mouse.wiggle) * 0.08;
+    group.rotation.z = Math.sin(now * 0.012 + mouse.wiggle) * 0.08;
     group.userData.powerBand.rotation.z += dt * (mouse.elite ? 7 : 5);
-    group.userData.powerBand.material.emissiveIntensity = mouse.elite
-      ? 1.15 + Math.sin(performance.now() * 0.011) * 0.35
-      : 0.72 + Math.sin(performance.now() * 0.009) * 0.2;
 
     if (distanceToPlayer < 0.95 && group.position.y < 0.8 && mouse.attackTimer <= 0) {
       mouse.attackTimer = 0.75;
@@ -802,15 +1027,15 @@ function throwBombFrom(origin, yaw, allied, target = null) {
   const velocity = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
   let fuse = allied ? 1.05 : 0.92;
   if (target) {
-    const targetPos = target.group.position.clone();
-    targetPos.y += 0.28;
-    const horizontal = targetPos.clone().sub(start);
-    horizontal.y = 0;
-    const distance = Math.max(horizontal.length(), 0.1);
-    horizontal.normalize();
+    tmpVec3.copy(target.group.position);
+    tmpVec3.y += 0.28;
+    tmpVec4.copy(tmpVec3).sub(start);
+    tmpVec4.y = 0;
+    const distance = Math.max(tmpVec4.length(), 0.1);
+    tmpVec4.normalize();
     fuse = THREE.MathUtils.clamp(distance / 7, 0.72, 1.18);
-    velocity.copy(horizontal.multiplyScalar(distance / fuse));
-    velocity.y = (targetPos.y - start.y + 0.5 * GRAVITY * fuse * fuse) / fuse;
+    velocity.copy(tmpVec4.multiplyScalar(distance / fuse));
+    velocity.y = (tmpVec3.y - start.y + 0.5 * GRAVITY * fuse * fuse) / fuse;
   } else {
     velocity.multiplyScalar(7.7);
     velocity.y = 9.8;
@@ -872,7 +1097,7 @@ function explodeBomb(position, allied) {
   scene.add(blast);
 
   const shock = new THREE.Mesh(
-    new THREE.SphereGeometry(0.18, 18, 12),
+    geometries.shock,
     new THREE.MeshBasicMaterial({
       color: 0xffd369,
       transparent: true,
@@ -881,6 +1106,7 @@ function explodeBomb(position, allied) {
     }),
   );
   shock.position.copy(position);
+  shock.scale.setScalar(0.18);
   scene.add(shock);
   state.particles.push({
     mesh: shock,
@@ -893,10 +1119,12 @@ function explodeBomb(position, allied) {
   });
 
   for (let i = 0; i < 18; i += 1) {
+    const sparkScale = 0.045 + Math.random() * 0.035;
     const spark = new THREE.Mesh(
-      new THREE.SphereGeometry(0.045 + Math.random() * 0.035, 8, 6),
+      geometries.spark,
       new THREE.MeshBasicMaterial({ color: Math.random() > 0.45 ? 0xffd369 : 0x5cc8ff }),
     );
+    spark.scale.setScalar(sparkScale);
     spark.position.copy(position);
     scene.add(spark);
     const velocity = randomSphereVector().multiplyScalar(3 + Math.random() * 5);
@@ -907,16 +1135,17 @@ function explodeBomb(position, allied) {
       age: 0,
       life: 0.45 + Math.random() * 0.25,
       kind: 'spark',
+      baseScale: sparkScale,
     });
   }
 
   for (let i = state.mice.length - 1; i >= 0; i -= 1) {
     const mouse = state.mice[i];
-    const distance = mouse.group.position.distanceTo(position);
-    if (distance > radius) continue;
+    const distanceSq = mouse.group.position.distanceToSquared(position);
+    if (distanceSq > radius * radius) continue;
 
     const airborne = mouse.group.position.y > 0.85;
-    if (airborne || distance < radius * 0.48) {
+    if (airborne || distanceSq < radius * radius * 0.48 * 0.48) {
       removeMouse(i, airborne, allied);
     } else {
       tmpVec.subVectors(mouse.group.position, position).normalize();
@@ -941,14 +1170,16 @@ function removeMouse(index, airborne, allied) {
 function spawnDefeatBurst(position, airborne) {
   const count = airborne ? 14 : 8;
   for (let i = 0; i < count; i += 1) {
+    const puffScale = 0.08 + Math.random() * 0.06;
     const puff = new THREE.Mesh(
-      new THREE.SphereGeometry(0.08 + Math.random() * 0.06, 8, 6),
+      geometries.puff,
       new THREE.MeshBasicMaterial({
         color: airborne && i % 2 === 0 ? 0x60e7ff : 0xb7bac4,
         transparent: true,
         opacity: 0.8,
       }),
     );
+    puff.scale.setScalar(puffScale);
     puff.position.copy(position);
     scene.add(puff);
     const velocity = randomSphereVector().multiplyScalar(1.5 + Math.random() * 2.4);
@@ -959,6 +1190,7 @@ function spawnDefeatBurst(position, airborne) {
       age: 0,
       life: 0.5 + Math.random() * 0.25,
       kind: 'puff',
+      baseScale: puffScale,
     });
   }
 }
@@ -966,9 +1198,10 @@ function spawnDefeatBurst(position, airborne) {
 function spawnJumpSpark(position, elite) {
   for (let i = 0; i < 5; i += 1) {
     const spark = new THREE.Mesh(
-      new THREE.SphereGeometry(0.035, 8, 6),
+      geometries.spark,
       new THREE.MeshBasicMaterial({ color: elite ? 0x60e7ff : 0xf5d36c }),
     );
+    spark.scale.setScalar(0.035);
     spark.position.set(position.x, 0.14, position.z);
     scene.add(spark);
     const velocity = randomSphereVector().multiplyScalar(1.2 + Math.random() * 1.2);
@@ -979,6 +1212,7 @@ function spawnJumpSpark(position, elite) {
       age: 0,
       life: 0.32 + Math.random() * 0.16,
       kind: 'spark',
+      baseScale: 0.035,
     });
   }
 }
@@ -1015,7 +1249,7 @@ function updateParticles(dt) {
       if (particle.light) particle.light.intensity = 100 * (1 - t);
     } else {
       particle.mesh.material.opacity = Math.max(0, 1 - t);
-      particle.mesh.scale.setScalar(Math.max(0.1, 1 - t * 0.45));
+      particle.mesh.scale.setScalar((particle.baseScale ?? 1) * Math.max(0.1, 1 - t * 0.45));
     }
 
     if (particle.age >= particle.life) {
@@ -1028,10 +1262,10 @@ function updateParticles(dt) {
 
 function updateCamera(dt) {
   const yaw = state.aimYaw;
-  const behind = new THREE.Vector3(-Math.sin(yaw) * 8.4, 6.6, -Math.cos(yaw) * 8.4);
-  const targetPosition = tmpVec.copy(player.position).add(behind);
-  targetPosition.y += 1.3;
-  camera.position.lerp(targetPosition, 1 - Math.pow(0.001, dt));
+  tmpVec.set(-Math.sin(yaw) * 8.4, 6.6, -Math.cos(yaw) * 8.4);
+  tmpVec.add(player.position);
+  tmpVec.y += 1.3;
+  camera.position.lerp(tmpVec, 1 - Math.pow(0.001, dt));
 
   const lookAt = tmpVec2.copy(player.position);
   lookAt.y += 1.6;
@@ -1047,7 +1281,33 @@ function resize() {
   const height = window.innerHeight;
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
+  applyRendererPixelRatio(true);
   renderer.setSize(width, height, false);
+}
+
+function updateAdaptivePixelRatio(dt) {
+  averageFrameMs = THREE.MathUtils.lerp(averageFrameMs, dt * 1000, 0.05);
+  pixelRatioCheckTimer += dt;
+  if (pixelRatioCheckTimer < 1) return;
+  pixelRatioCheckTimer = 0;
+
+  if (averageFrameMs > 26 && pixelRatioScale > 0.72) {
+    pixelRatioScale = Math.max(0.72, pixelRatioScale - 0.08);
+    applyRendererPixelRatio();
+  } else if (averageFrameMs < 18 && pixelRatioScale < 1) {
+    pixelRatioScale = Math.min(1, pixelRatioScale + 0.04);
+    applyRendererPixelRatio();
+  }
+}
+
+function applyRendererPixelRatio(force = false) {
+  const coarsePointer = window.matchMedia?.('(pointer: coarse)').matches;
+  const baseCap = coarsePointer || window.innerWidth < 720 ? 1.25 : 1.6;
+  const nextRatio = Math.max(1, Math.min(window.devicePixelRatio || 1, baseCap) * pixelRatioScale);
+  const roundedRatio = Number(nextRatio.toFixed(2));
+  if (!force && Math.abs(roundedRatio - activePixelRatio) < 0.05) return;
+  activePixelRatio = roundedRatio;
+  renderer.setPixelRatio(activePixelRatio);
 }
 
 function clampToArena(position, radius) {
@@ -1059,6 +1319,8 @@ function clampToArena(position, radius) {
 }
 
 function syncBombRack() {
+  if (renderedBombCount === state.bombs) return;
+  renderedBombCount = state.bombs;
   bombRack.innerHTML = '';
   for (let i = 0; i < MAX_BOMBS; i += 1) {
     const pip = document.createElement('span');
@@ -1068,12 +1330,28 @@ function syncBombRack() {
 }
 
 function updateHud() {
-  waveValue.textContent = String(state.wave);
-  scoreValue.textContent = String(state.score);
+  if (hudCache.wave !== state.wave) {
+    hudCache.wave = state.wave;
+    waveValue.textContent = String(state.wave);
+  }
+
+  if (hudCache.score !== state.score) {
+    hudCache.score = state.score;
+    scoreValue.textContent = String(state.score);
+  }
+
   const percent = Math.max(0, state.health / MAX_HEALTH) * 100;
-  healthFill.style.width = `${percent}%`;
-  healthFill.style.background =
-    percent > 55 ? '#38b96a' : percent > 26 ? '#f5d36c' : '#ba3b3f';
+  const roundedPercent = Math.round(percent);
+  const color = percent > 55 ? '#38b96a' : percent > 26 ? '#f5d36c' : '#ba3b3f';
+  if (hudCache.healthPercent !== roundedPercent) {
+    hudCache.healthPercent = roundedPercent;
+    healthFill.style.width = `${roundedPercent}%`;
+  }
+
+  if (hudCache.healthColor !== color) {
+    hudCache.healthColor = color;
+    healthFill.style.background = color;
+  }
 }
 
 function endGame() {

@@ -7,6 +7,7 @@ const outputDir = new URL('../verification/', import.meta.url);
 
 const viewports = [
   { name: 'desktop', width: 1366, height: 768, isMobile: false },
+  { name: 'desktop-hidpi', width: 900, height: 600, isMobile: false, deviceScaleFactor: 2 },
   { name: 'mobile', width: 390, height: 844, isMobile: true },
 ];
 
@@ -22,7 +23,7 @@ try {
       viewport: { width: viewport.width, height: viewport.height },
       isMobile: viewport.isMobile,
       hasTouch: viewport.isMobile,
-      deviceScaleFactor: 1,
+      deviceScaleFactor: viewport.deviceScaleFactor || 1,
     });
 
     page.on('pageerror', (error) => errors.push(error.message));
@@ -41,6 +42,7 @@ try {
         clientHeight: canvas.clientHeight,
         width: canvas.width,
         height: canvas.height,
+        pixelRatio: Number((canvas.width / canvas.clientWidth).toFixed(2)),
       };
     });
 
@@ -69,7 +71,7 @@ try {
     }
 
     await page.waitForTimeout(900);
-    const screenshot = await page.screenshot();
+    const screenshot = await page.screenshot({ scale: 'css' });
     const screenshotPath = new URL(`${viewport.name}.png`, outputDir);
     await writeFile(screenshotPath, screenshot);
 
@@ -79,6 +81,7 @@ try {
       canvasState.clientHeight === viewport.height &&
       canvasState.width > 0 &&
       canvasState.height > 0 &&
+      canvasState.pixelRatio <= (viewport.isMobile ? 1.3 : 1.65) &&
       (viewport.isMobile || Math.abs(canvasState.mouseLookDelta) >= 0.05) &&
       (viewport.isMobile ||
         (canvasState.keyTurnDeltaA >= 0.2 && canvasState.keyTurnDeltaD <= -0.2)) &&
